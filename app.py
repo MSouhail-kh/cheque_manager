@@ -21,7 +21,7 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://userdb:mdkL8oVYB7i6zJwq6dQncANTls4AlDap@dpg-d3t9mp2li9vc738l4p60-a/cheque_manager_db_01ni'
+    'postgresql://userdb:7iSCn2tDsfmolLqp9BabJ7rIgJ8La4In@dpg-d3t9uhh5pdvs738km4f0-a/cheque_manager_db_y1ec'
 )
 
 resend.api_key = "re_YVrS1uRe_FnyccxhDt2YTj9CPnrLLJ1gN"  # ⚠️ à sécuriser plus tard dans Render (Environment Variable)
@@ -238,7 +238,7 @@ def generate_password(mac: str, length: int = 12) -> str:
 def send_email_resend(to, subject, html_content):
     try:
         resend.Emails.send({
-            "from": "abireladila@gmail.com",  
+            "from": "onboarding@resend.dev",  
             "to": [to],
             "subject": subject,
             "html": html_content
