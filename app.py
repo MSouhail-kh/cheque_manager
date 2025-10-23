@@ -20,7 +20,7 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://userdb:9Hk2HqdJhemKcTBZNg37mab0t4HO73uP@dpg-d3t7rubipnbc738gl82g-a/chequedb'
+    'postgresql://userdb:pKtn0kd8ZGdvts5C7uohtftF4gvJDIhR@dpg-d3t8lm3e5dus738eq5dg-a/cheque_manager_db'
 )
 
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
