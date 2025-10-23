@@ -12,9 +12,6 @@ import os
 from flask_mail import Mail, Message
 import string
 import re
-import random
-import sib_api_v3_sdk
-from sib_api_v3_sdk.rest import ApiException
 
 app = Flask(__name__)
 CORS(app)
@@ -22,7 +19,7 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://userdb:4YBomiOInswTeolHnkQvETe7IjEfDtDD@dpg-d3taarumcj7s73a8n4mg-a/cheque_manager_db_5kj4'
+    'postgresql://user:uJW3BcBMikGOR5WS8lydoM5fPKz7KQ7m@dpg-d3tb2fili9vc73b7la6g-a/cheque_manager_db_qxkm'
 )
 
 db = SQLAlchemy(app)
@@ -233,31 +230,6 @@ def generate_password(mac: str, length: int = 12) -> str:
     random.shuffle(pwd)
     return ''.join(pwd)
 
-
-def send_email_brevo(to, subject, html_content):
-    try:
-        configuration = sib_api_v3_sdk.Configuration()
-        configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
-
-        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
-            sib_api_v3_sdk.ApiClient(configuration)
-        )
-
-        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
-            to=[{"email": to}],
-            sender={"email": "99f207001@smtp-brevo.com", "name": "Cheque Manager"},
-            subject=subject,
-            html_content=html_content
-        )
-
-        api_response = api_instance.send_transac_email(send_smtp_email)
-        print(f"✅ Email envoyé à {to}")
-        return True
-
-    except ApiException as e:
-        print(f"❌ Erreur envoi email Brevo : {e}")
-        return False
-    
 @app.route("/api/signup", methods=["POST"])
 def signup():
     data = request.json
@@ -270,35 +242,31 @@ def signup():
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Format d'email invalide"}), 400
 
-    # if User.query.filter_by(email=email).first():
-    #     return jsonify({"error": "Email déjà existant"}), 400
+    # Vérifier si utilisateur existe déjà
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"error": "Email déjà existant"}), 400
 
-    # if User.query.filter_by(mac_address=mac_address).first():
-    #     return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
+    existing_mac = User.query.filter_by(mac_address=mac_address).first()
+    if existing_mac:
+        return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
 
     username = email.split('@')[0]
     password = generate_password(mac_address, length=10)
 
+    # ✅ Création du nouvel utilisateur
     user = User(username=username, email=email, mac_address=mac_address, password=password)
     db.session.add(user)
     db.session.commit()
 
-    # ✅ Envoi email via RESEND
-    subject = "Bienvenue sur notre plateforme"
-    body_html = f"""
-    <h2>Bienvenue, {username} 👋</h2>
-    <p>Votre compte a été créé avec succès !</p>
-    <ul>
-        <li><b>Email :</b> {email}</li>
-        <li><b>Mot de passe :</b> {password}</li>
-    </ul>
-    <p>Merci de votre inscription 🙏</p>
-    """
+    # ✅ Retourne directement email + password pour affichage côté React
+    return jsonify({
+        "message": "Utilisateur inscrit avec succès ✅",
+        "user_id": user.id,
+        "email": email,
+        "password": password
+    }), 201
 
-    if send_email_brevo(email, subject, body_html):
-        return jsonify({"message": "Utilisateur inscrit et email envoyé ✅", "user_id": user.id}), 201
-    else:
-        return jsonify({"warning": "Utilisateur créé mais email non envoyé ❌"}), 201
 
  
 @app.route("/api/cheque_pdf", methods=["POST"])

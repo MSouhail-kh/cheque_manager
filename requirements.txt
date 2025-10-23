@@ -17,5 +17,3 @@ Flask-SQLAlchemy
 psycopg2-binary
 SQLAlchemy
 flask_mail
-resend
-sib_api_v3_sdk
