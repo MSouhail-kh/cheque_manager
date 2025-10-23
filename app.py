@@ -350,16 +350,32 @@ def get_banques():
     return jsonify(list(CHEQUE_MODELES.keys()) + list(CHEQUE_MODLES_LETTRES.keys()))
 
 
-@app.route('/db_tables_sql')
-def db_tables_sql():
+@app.route('/check_db')
+def check_db():
     try:
-        result = db.session.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema='public';"
-        )
-        tables = [row[0] for row in result]
-        return {"tables": tables}
+        # Inspecteur pour lister les tables
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+
+        # Vérifie si les tables User et Cheque existent
+        required_tables = ['user', 'cheque']
+        missing = [t for t in required_tables if t not in tables]
+
+        if not missing:
+            return jsonify({
+                "status": "ok",
+                "message": "Base PostgreSQL connectée et tables installées : " + ", ".join(required_tables),
+                "tables_presentes": tables
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Tables manquantes : " + ", ".join(missing),
+                "tables_presentes": tables
+            })
     except Exception as e:
-        return {"error": str(e)}
+        return jsonify({"status": "error", "message": str(e)})
+
 
 with app.app_context():
     db.create_all()
