@@ -39,7 +39,7 @@ class User(db.Model):
     username = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     mac_address = db.Column(db.String(100))
-    password = db.Column(db.String(10))
+    password = db.Column(db.String(200), nullable=True)    
     cheques = db.relationship("Cheque", backref="user", lazy=True)
 
 class Cheque(db.Model):
