@@ -21,7 +21,7 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://userdb:pKtn0kd8ZGdvts5C7uohtftF4gvJDIhR@dpg-d3t8lm3e5dus738eq5dg-a/cheque_manager_db'
+    'postgresql://userdb:mdkL8oVYB7i6zJwq6dQncANTls4AlDap@dpg-d3t9mp2li9vc738l4p60-a/cheque_manager_db_01ni'
 )
 
 resend.api_key = "re_YVrS1uRe_FnyccxhDt2YTj9CPnrLLJ1gN"  # ⚠️ à sécuriser plus tard dans Render (Environment Variable)
