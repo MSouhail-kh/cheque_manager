@@ -17,3 +17,4 @@ Flask-SQLAlchemy
 psycopg2-binary
 SQLAlchemy
 flask_mail
+resend

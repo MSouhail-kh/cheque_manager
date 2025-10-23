@@ -13,6 +13,7 @@ from flask_mail import Mail, Message
 import string
 import re
 import random
+import resend
 
 app = Flask(__name__)
 CORS(app)
@@ -23,12 +24,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'postgresql://userdb:pKtn0kd8ZGdvts5C7uohtftF4gvJDIhR@dpg-d3t8lm3e5dus738eq5dg-a/cheque_manager_db'
 )
 
-app.config["MAIL_SERVER"] = "smtp.gmail.com"
-app.config["MAIL_PORT"] = 465
-app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = "cheque1manager@gmail.com" 
-app.config["MAIL_PASSWORD"] = "dzxorcljujfxrehm" 
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+resend.api_key = "re_YVrS1uRe_FnyccxhDt2YTj9CPnrLLJ1gN"  # ⚠️ à sécuriser plus tard dans Render (Environment Variable)
+
 
 db = SQLAlchemy(app)
 mail = Mail(app)
@@ -238,7 +235,20 @@ def generate_password(mac: str, length: int = 12) -> str:
     random.shuffle(pwd)
     return ''.join(pwd)
 
-
+def send_email_resend(to, subject, html_content):
+    try:
+        resend.Emails.send({
+            "from": "abireladila@gmail.com",  
+            "to": [to],
+            "subject": subject,
+            "html": html_content
+        })
+        print(f"✅ Email envoyé à {to}")
+        return True
+    except Exception as e:
+        print(f"❌ Erreur envoi email Resend : {e}")
+        return False
+    
 @app.route("/api/signup", methods=["POST"])
 def signup():
     data = request.json
@@ -257,34 +267,30 @@ def signup():
     if User.query.filter_by(mac_address=mac_address).first():
         return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
 
-    # Username = tout après @
     username = email.split('@')[0]
-
-    # Générer mot de passe sécurisé depuis MAC
     password = generate_password(mac_address, length=10)
 
-    # Créer utilisateur
     user = User(username=username, email=email, mac_address=mac_address, password=password)
     db.session.add(user)
     db.session.commit()
 
-    # Envoi email
-    try:
-        msg = Message(
-            subject="Bienvenue sur notre plateforme",
-            sender=app.config["MAIL_USERNAME"],
-            recipients=[email],
-            body=f"Bonjour {username},\n\nVotre compte a été créé avec succès.\n"
-                 f"Votre identifiant : {email}\n"
-                 f"Votre mot de passe sécurisé : {password}\n\n"
-                 "Merci de votre inscription !"
-        )
-        mail.send(msg)
-    except Exception as e:
-        print("Erreur lors de l'envoi de l'email :", e)
-        return jsonify({"warning": "Utilisateur créé mais email non envoyé"}), 201
+    # ✅ Envoi email via RESEND
+    subject = "Bienvenue sur notre plateforme"
+    body_html = f"""
+    <h2>Bienvenue, {username} 👋</h2>
+    <p>Votre compte a été créé avec succès !</p>
+    <ul>
+        <li><b>Email :</b> {email}</li>
+        <li><b>Mot de passe :</b> {password}</li>
+    </ul>
+    <p>Merci de votre inscription 🙏</p>
+    """
 
-    return jsonify({"message": "Utilisateur inscrit avec succès", "user_id": user.id}), 201
+    if send_email_resend(email, subject, body_html):
+        return jsonify({"message": "Utilisateur inscrit et email envoyé ✅", "user_id": user.id}), 201
+    else:
+        return jsonify({"warning": "Utilisateur créé mais email non envoyé ❌"}), 201
+
  
 @app.route("/api/cheque_pdf", methods=["POST"])
 def cheque_pdf():
