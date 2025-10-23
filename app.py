@@ -20,7 +20,7 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://user:uJW3BcBMikGOR5WS8lydoM5fPKz7KQ7m@dpg-d3tb2fili9vc73b7la6g-a/cheque_manager_db_qxkm'
+    'postgresql://userdb:qt1AHFUOLr83TsI5uriLhpm5tID4QKVU@dpg-d3tc1ov5r7bs73emkcv0-a/cheque_manager_db_6qiw'
 )
 SECRET_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"
 
