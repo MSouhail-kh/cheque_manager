@@ -13,6 +13,8 @@ from flask_mail import Mail, Message
 import string
 import re
 import random
+import threading
+import socket
 
 app = Flask(__name__)
 CORS(app)
@@ -22,13 +24,19 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
     'postgresql://userdb:9Hk2HqdJhemKcTBZNg37mab0t4HO73uP@dpg-d3t7rubipnbc738gl82g-a/chequedb'
 )
-
-app.config["MAIL_SERVER"] = "smtp.gmail.com"
-app.config["MAIL_PORT"] = 587
-app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = "cheque1manager@gmail.com" 
-app.config["MAIL_PASSWORD"] = "dzxo rclj ujfx rehm" 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# --- Email (Gmail) ---
+app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", "587"))
+app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+app.config["MAIL_USE_SSL"] = os.environ.get("MAIL_USE_SSL", "false").lower() == "true"
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "cheque1manager@gmail.com")
+app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "dzxo rclj ujfx rehm")  # à remplacer par env en prod
+app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("MAIL_DEFAULT_SENDER", app.config["MAIL_USERNAME"])
+
+# Eviter les blocages réseau prolongés (SMTP inaccessible)
+socket.setdefaulttimeout(5)
 
 db = SQLAlchemy(app)
 mail = Mail(app)
@@ -223,33 +231,61 @@ def to_words():
         return jsonify({"error": "Montant invalide"}), 400
     montant_lettres = num2words(montant, lang="fr").replace("virgule", "et") + " dirhams"
     return jsonify({"montant_lettres": montant_lettres})
+EMAIL_REGEX = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
+MAC_REGEX = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$")
 
-def generate_password(mac: str, length: int = 12) -> str:
-    # Remplacer chiffres par lettres ou symboles
-    translation = {'0':'@', '1':'!', '2':'#', '3':'$', '4':'%', '5':'^', '6':'&', '7':'*', '8':'(', '9':')'}
-    pwd = ''.join([translation.get(c, c) for c in mac])
+def normalize_mac(mac: str) -> str:
+    return mac.strip().replace("-", ":").upper()
 
-    letters = string.ascii_letters
-    symbols = "!@#$%^&*()_+-=[]{}<>?"
-    while len(pwd) < length:
-        pwd += random.choice(letters + symbols + string.digits)
+def generate_password(mac: str, length: int = 10) -> str:
+    # Exemple: mot de passe pseudo-aléatoire basé sur MAC + entropie
+    # Ici on ignore volontairement la MAC pour la sécurité et on génère un vrai random
+    chars = string.ascii_letters + string.digits
+    return "".join(random.SystemRandom().choice(chars) for _ in range(length))
 
-    pwd = list(pwd)
-    random.shuffle(pwd)
-    return ''.join(pwd)
+def _send_signup_email_sync(recipient_email: str, username: str, password: str):
+    subject = "Bienvenue sur notre plateforme"
+    body = (
+        f"Bonjour {username},\n\n"
+        f"Votre compte a été créé avec succès.\n"
+        f"Votre identifiant : {recipient_email}\n"
+        f"Votre mot de passe sécurisé : {password}\n\n"
+        "Merci de votre inscription !"
+    )
+    msg = Message(
+        subject=subject,
+        recipients=[recipient_email],
+        body=body,
+        sender=app.config.get("MAIL_DEFAULT_SENDER", app.config.get("MAIL_USERNAME")),
+    )
+    # Utiliser un app_context car on est possiblement sur un thread
+    with app.app_context():
+        mail.send(msg)
 
+def send_signup_email_async(recipient_email: str, username: str, password: str):
+    t = threading.Thread(
+        target=_send_signup_email_sync,
+        args=(recipient_email, username, password),
+        daemon=True
+    )
+    t.start()
 
+# --- Route signup ---
 @app.route("/api/signup", methods=["POST"])
 def signup():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     email = data.get("email")
     mac_address = data.get("mac_address")
 
     if not email or not mac_address:
         return jsonify({"error": "Email et adresse MAC sont requis"}), 400
 
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+    if not EMAIL_REGEX.match(email):
         return jsonify({"error": "Format d'email invalide"}), 400
+
+    mac_address = normalize_mac(mac_address)
+    if not MAC_REGEX.match(mac_address):
+        return jsonify({"error": "Adresse MAC invalide (format attendu: AA:BB:CC:DD:EE:FF)"}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email déjà existant"}), 400
@@ -257,32 +293,22 @@ def signup():
     if User.query.filter_by(mac_address=mac_address).first():
         return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
 
-    # Username = tout après @
-    username = email.split('@')[0]
+    # Username = tout avant @
+    username = email.split("@")[0]
 
-    # Générer mot de passe sécurisé depuis MAC
-    password = generate_password(mac_address, length=10)
+    # Générer mot de passe sécurisé
+    password = generate_password(mac_address, length=12)
 
     # Créer utilisateur
     user = User(username=username, email=email, mac_address=mac_address, password=password)
     db.session.add(user)
     db.session.commit()
 
-    # Envoi email
     try:
-        msg = Message(
-            subject="Bienvenue sur notre plateforme",
-            sender=app.config["MAIL_USERNAME"],
-            recipients=[email],
-            body=f"Bonjour {username},\n\nVotre compte a été créé avec succès.\n"
-                 f"Votre identifiant : {email}\n"
-                 f"Votre mot de passe sécurisé : {password}\n\n"
-                 "Merci de votre inscription !"
-        )
-        mail.send(msg)
+        send_signup_email_async(email, username, password)
     except Exception as e:
-        print("Erreur lors de l'envoi de l'email :", e)
-        return jsonify({"warning": "Utilisateur créé mais email non envoyé"}), 201
+        app.logger.exception("Echec lancement envoi email: %s", e)
+        # On ne bloque pas l'inscription pour un échec d'email
 
     return jsonify({"message": "Utilisateur inscrit avec succès", "user_id": user.id}), 201
  
