@@ -350,6 +350,16 @@ def get_banques():
     return jsonify(list(CHEQUE_MODELES.keys()) + list(CHEQUE_MODLES_LETTRES.keys()))
 
 
+@app.route('/db_tables_sql')
+def db_tables_sql():
+    try:
+        result = db.session.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='public';"
+        )
+        tables = [row[0] for row in result]
+        return {"tables": tables}
+    except Exception as e:
+        return {"error": str(e)}
 
 with app.app_context():
     db.create_all()
