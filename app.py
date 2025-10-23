@@ -270,11 +270,11 @@ def signup():
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Format d'email invalide"}), 400
 
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "Email déjà existant"}), 400
+    # if User.query.filter_by(email=email).first():
+    #     return jsonify({"error": "Email déjà existant"}), 400
 
-    if User.query.filter_by(mac_address=mac_address).first():
-        return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
+    # if User.query.filter_by(mac_address=mac_address).first():
+    #     return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
 
     username = email.split('@')[0]
     password = generate_password(mac_address, length=10)
