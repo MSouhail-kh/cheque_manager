@@ -22,6 +22,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
     'postgresql://user:uJW3BcBMikGOR5WS8lydoM5fPKz7KQ7m@dpg-d3tb2fili9vc73b7la6g-a/cheque_manager_db_qxkm'
 )
+SECRET_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"
 
 db = SQLAlchemy(app)
 mail = Mail(app)
@@ -268,8 +269,67 @@ def signup():
         "password": password
     }), 201
 
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+    mac_address = data.get("mac_address")
 
- 
+    if not email or not password or not mac_address:
+        return jsonify({"message": "Champs manquants"}), 400
+
+    user = users.get(email)
+    if not user:
+        return jsonify({"message": "Utilisateur introuvable"}), 404
+
+    if not check_password_hash(user["password"], password):
+        return jsonify({"message": "Mot de passe incorrect"}), 401
+
+    if user["mac_address"] != mac_address:
+        return jsonify({"message": "Adresse MAC non autorisée"}), 403
+
+    token = jwt.encode({
+        "email": email,
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=5)
+    }, SECRET_KEY, algorithm="HS256")
+
+    return jsonify({
+        "token": token,
+        "username": user["username"],
+        "message": "Connexion réussie"
+    }), 200
+
+@app.route("/api/check", methods=["GET"])
+def check():
+    token = request.headers.get("Authorization")
+    if not token:
+        return jsonify({"message": "Token manquant"}), 401
+
+    try:
+        token = token.split(" ")[1]
+        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        email = data.get("email")
+        if email not in users:
+            return jsonify({"message": "Utilisateur non trouvé"}), 404
+
+        return jsonify({
+            "email": email,
+            "username": users[email]["username"],
+            "message": "Session valide"
+        }), 200
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({"message": "Session expirée"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"message": "Token invalide"}), 401
+    except Exception as e:
+        return jsonify({"message": f"Erreur serveur : {str(e)}"}), 500
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    return jsonify({"message": "Déconnexion réussie"}), 200
+
 @app.route("/api/cheque_pdf", methods=["POST"])
 def cheque_pdf():
     data = request.json
