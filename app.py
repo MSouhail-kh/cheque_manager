@@ -19,9 +19,15 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'postgresql://user:ABg43ZSqMQCGqIOcczkLSKVh2uaF8IoU@dpg-d3t1rtvdiees73cuse0g-a/cheques_db_3kzo'
 )
 
-
+app.config["MAIL_SERVER"] = "smtp.gmail.com"
+app.config["MAIL_PORT"] = 587
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = "cheque1manager@gmail.com" 
+app.config["MAIL_PASSWORD"] = "dzxo rclj ujfx rehm" 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
 db = SQLAlchemy(app)
+mail = Mail(app)
 
 # --- Modèles ---
 class User(db.Model):
@@ -29,9 +35,8 @@ class User(db.Model):
     username = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     mac_address = db.Column(db.String(100))
-    otp_code = db.Column(db.String(10))
+    password = db.Column(db.String(10))
     cheques = db.relationship("Cheque", backref="user", lazy=True)
-
 
 class Cheque(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -215,26 +220,68 @@ def to_words():
     montant_lettres = num2words(montant, lang="fr").replace("virgule", "et") + " dirhams"
     return jsonify({"montant_lettres": montant_lettres})
 
-@app.route("/api/add_user", methods=["POST"])
-def add_user():
+def generate_password(mac: str, length: int = 12) -> str:
+    # Remplacer chiffres par lettres ou symboles
+    translation = {'0':'@', '1':'!', '2':'#', '3':'$', '4':'%', '5':'^', '6':'&', '7':'*', '8':'(', '9':')'}
+    pwd = ''.join([translation.get(c, c) for c in mac])
+
+    letters = string.ascii_letters
+    symbols = "!@#$%^&*()_+-=[]{}<>?"
+    while len(pwd) < length:
+        pwd += random.choice(letters + symbols + string.digits)
+
+    pwd = list(pwd)
+    random.shuffle(pwd)
+    return ''.join(pwd)
+
+
+@app.route("/api/signup", methods=["POST"])
+def signup():
     data = request.json
-    username = data.get("username")
     email = data.get("email")
     mac_address = data.get("mac_address")
-    otp_code = data.get("otp_code")
 
-    if not username or not email:
-        return jsonify({"error": "Nom d'utilisateur et email requis"}), 400
+    if not email or not mac_address:
+        return jsonify({"error": "Email et adresse MAC sont requis"}), 400
+
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return jsonify({"error": "Format d'email invalide"}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email déjà existant"}), 400
 
-    user = User(username=username, email=email, mac_address=mac_address, otp_code=otp_code)
+    if User.query.filter_by(mac_address=mac_address).first():
+        return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
+
+    # Username = tout après @
+    username = email.split('@')[0]
+
+    # Générer mot de passe sécurisé depuis MAC
+    password = generate_password(mac_address, length=10)
+
+    # Créer utilisateur
+    user = User(username=username, email=email, mac_address=mac_address, password=password)
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "Utilisateur ajouté avec succès", "user_id": user.id})
 
+    # Envoi email
+    try:
+        msg = Message(
+            subject="Bienvenue sur notre plateforme",
+            sender=app.config["MAIL_USERNAME"],
+            recipients=[email],
+            body=f"Bonjour {username},\n\nVotre compte a été créé avec succès.\n"
+                 f"Votre identifiant : {email}\n"
+                 f"Votre mot de passe sécurisé : {password}\n\n"
+                 "Merci de votre inscription !"
+        )
+        mail.send(msg)
+    except Exception as e:
+        print("Erreur lors de l'envoi de l'email :", e)
+        return jsonify({"warning": "Utilisateur créé mais email non envoyé"}), 201
 
+    return jsonify({"message": "Utilisateur inscrit avec succès", "user_id": user.id}), 201
+ 
 @app.route("/api/cheque_pdf", methods=["POST"])
 def cheque_pdf():
     data = request.json
