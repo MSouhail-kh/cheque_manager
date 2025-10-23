@@ -13,7 +13,12 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Base de données ---
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///cheques.db")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL',
+    'postgresql://user:ABg43ZSqMQCGqIOcczkLSKVh2uaF8IoU@dpg-d3t1rtvdiees73cuse0g-a/cheques_db_3kzo'
+)
+
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
@@ -345,9 +350,14 @@ def get_banques():
     return jsonify(list(CHEQUE_MODELES.keys()) + list(CHEQUE_MODLES_LETTRES.keys()))
 
 
-# --- Initialisation ---
+
 with app.app_context():
     db.create_all()
+    
+@app.route('/')
+def home():
+    return "Backend des chèques connecté à PostgreSQL Render !"
+
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

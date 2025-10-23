@@ -13,3 +13,6 @@ werkzeug
 itsdangerous
 click
 Jinja2
+Flask-SQLAlchemy
+psycopg2-binary
+SQLAlchemy
