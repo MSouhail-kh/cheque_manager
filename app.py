@@ -9,6 +9,10 @@ from num2words import num2words
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import os
+from flask_mail import Mail, Message
+import string
+import re
+from flask_mail import Mail, Message
 
 app = Flask(__name__)
 CORS(app)
