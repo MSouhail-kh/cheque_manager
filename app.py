@@ -1,4 +1,5 @@
 from flask import Flask, request, send_file, jsonify
+from sqlalchemy import inspect
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
