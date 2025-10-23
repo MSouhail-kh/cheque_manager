@@ -13,7 +13,8 @@ from flask_mail import Mail, Message
 import string
 import re
 import random
-import resend
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
 app = Flask(__name__)
 CORS(app)
@@ -21,11 +22,8 @@ CORS(app)
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql://userdb:7iSCn2tDsfmolLqp9BabJ7rIgJ8La4In@dpg-d3t9uhh5pdvs738km4f0-a/cheque_manager_db_y1ec'
+    'postgresql://userdb:4YBomiOInswTeolHnkQvETe7IjEfDtDD@dpg-d3taarumcj7s73a8n4mg-a/cheque_manager_db_5kj4'
 )
-
-resend.api_key = "re_YVrS1uRe_FnyccxhDt2YTj9CPnrLLJ1gN"  # ⚠️ à sécuriser plus tard dans Render (Environment Variable)
-
 
 db = SQLAlchemy(app)
 mail = Mail(app)
@@ -235,18 +233,29 @@ def generate_password(mac: str, length: int = 12) -> str:
     random.shuffle(pwd)
     return ''.join(pwd)
 
-def send_email_resend(to, subject, html_content):
+
+def send_email_brevo(to, subject, html_content):
     try:
-        resend.Emails.send({
-            "from": "onboarding@resend.dev",  
-            "to": [to],
-            "subject": subject,
-            "html": html_content
-        })
+        configuration = sib_api_v3_sdk.Configuration()
+        configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+            sib_api_v3_sdk.ApiClient(configuration)
+        )
+
+        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+            to=[{"email": to}],
+            sender={"email": "99f207001@smtp-brevo.com", "name": "Cheque Manager"},
+            subject=subject,
+            html_content=html_content
+        )
+
+        api_response = api_instance.send_transac_email(send_smtp_email)
         print(f"✅ Email envoyé à {to}")
         return True
-    except Exception as e:
-        print(f"❌ Erreur envoi email Resend : {e}")
+
+    except ApiException as e:
+        print(f"❌ Erreur envoi email Brevo : {e}")
         return False
     
 @app.route("/api/signup", methods=["POST"])
@@ -286,7 +295,7 @@ def signup():
     <p>Merci de votre inscription 🙏</p>
     """
 
-    if send_email_resend(email, subject, body_html):
+    if send_email_brevo(email, subject, body_html):
         return jsonify({"message": "Utilisateur inscrit et email envoyé ✅", "user_id": user.id}), 201
     else:
         return jsonify({"warning": "Utilisateur créé mais email non envoyé ❌"}), 201
