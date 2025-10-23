@@ -1,0 +1,15 @@
+flask
+nltk
+spacy
+textblob
+flask-cors
+num2words
+reportlab
+PyPDF2
+pillow
+pdf2image
+gunicorn
+werkzeug
+itsdangerous
+click
+Jinja2
