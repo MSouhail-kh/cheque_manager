@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify , session, make_response
 from sqlalchemy import inspect
 from io import BytesIO
 from reportlab.pdfgen import canvas
@@ -14,44 +14,156 @@ from flask_mail import Mail, Message
 import string
 import re
 import random
-import jwt
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
 
 # --- Base de données ---
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL',
-    'postgresql://userdb:qt1AHFUOLr83TsI5uriLhpm5tID4QKVU@dpg-d3tc1ov5r7bs73emkcv0-a/cheque_manager_db_6qiw'
+SERVER_DB_URL = os.environ.get(
+    'DATABASE_URL','postgresql://userdb:qt1AHFUOLr83TsI5uriLhpm5tID4QKVU@dpg-d3tc1ov5r7bs73emkcv0-a/cheque_manager_db_6qiw'
 )
-SECRET_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"
+LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "local_data.db")
+
+app.config['SQLALCHEMY_BINDS'] = {
+    'server': SERVER_DB_URL,
+    'local': f"sqlite:///{LOCAL_DB_PATH}"
+}
+app.config['SQLALCHEMY_DATABASE_URI'] = SERVER_DB_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-mail = Mail(app)
 
-# --- Modèles ---
-class User(db.Model):
+# Exemple de modèles (si tu as déjà User et Cheque définis plus bas)
+class UserServer(db.Model):
+    __bind_key__ = 'server'
+    __tablename__ = 'user_server'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(100))
+    email = db.Column(db.String(120), unique=True)
     mac_address = db.Column(db.String(100))
-    password = db.Column(db.String(200), nullable=True)    
-    cheques = db.relationship("Cheque", backref="user", lazy=True)
+    password = db.Column(db.String(200))
 
-class Cheque(db.Model):
+
+class UserLocal(db.Model):
+    __bind_key__ = 'local'
+    __tablename__ = 'user_local'
     id = db.Column(db.Integer, primary_key=True)
-    banque = db.Column(db.String(120), nullable=False)
-    a_lordre = db.Column(db.String(200))
-    montant = db.Column(db.String(50))
-    montant_lettres = db.Column(db.Text)
-    date = db.Column(db.String(50))
-    lieu = db.Column(db.String(100))
-    cause = db.Column(db.String(200))
-    tireur = db.Column(db.String(200))
-    date_echeance = db.Column(db.String(50))
-    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    username = db.Column(db.String(100))
+    email = db.Column(db.String(120), unique=True)
+    mac_address = db.Column(db.String(100))
+    password = db.Column(db.String(200))
+
+# --- API : inscription ---
+@app.route("/api/signup", methods=["POST"])
+def signup():
+    data = request.json
+    email = data.get("email")
+    mac_address = data.get("mac_address")
+    password = data.get("password")
+
+    if not email or not mac_address or not password:
+        return jsonify({"error": "Champs manquants"}), 400
+
+    hashed_password = generate_password_hash(password)
+
+    # ✅ Créer automatiquement la table locale si elle n’existe pas
+    try:
+        engine_local = db.get_engine(app, bind="local")
+        UserLocal.metadata.create_all(engine_local)
+        print("📁 Table 'user_local' vérifiée/créée.")
+    except Exception as e:
+        print(f"⚠️ Erreur lors de la création de la table locale : {e}")
+
+    # --- 1️⃣ Création du user local ---
+    user_local = UserLocal(email=email, mac_address=mac_address, password=hashed_password)
+    db.session.add(user_local)
+    db.session.commit()
+    print("✅ Utilisateur enregistré localement.")
+
+    # --- 2️⃣ Tentative de création sur le serveur ---
+    try:
+        with app.app_context():
+            engine_server = db.get_engine(app, bind="server")
+            UserServer.metadata.create_all(engine_server)
+            existing_server = db.session.query(UserServer).filter_by(email=email).first()
+            if not existing_server:
+                user_server = UserServer(
+                    email=email,
+                    mac_address=mac_address,
+                    password=hashed_password
+                )
+                db.session.add(user_server)
+                db.session.commit()
+                print("✅ Compte créé sur le serveur distant.")
+    except Exception as e:
+        db.session.rollback()
+        print(f"⚠️ Erreur de connexion au serveur : {e}")
+
+    return jsonify({
+        "message": "Compte créé (local + serveur si disponible)."
+    }), 201
+
+
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+    mac_address = data.get("mac_address")
+
+    if not email or not password or not mac_address:
+        return jsonify({"message": "Champs manquants"}), 400
+
+    user = UserLocal.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"message": "Utilisateur non trouvé localement"}), 404
+
+    if not check_password_hash(user.password, password):
+        return jsonify({"message": "Mot de passe incorrect"}), 401
+
+    if user.mac_address != mac_address:
+        return jsonify({"message": "MAC non autorisée"}), 403
+
+    # === Mettre l'utilisateur dans la session Flask ===
+    session.clear()
+    session['user_id'] = user.id
+    session['email'] = user.email
+
+    return jsonify({
+        "message": "Connexion locale réussie ✅",
+        "user_id": user.id,
+        "email": user.email
+    }), 200
+
+@app.route("/api/current_user", methods=["GET"])
+def current_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "Non authentifié"}), 401
+
+    user = UserLocal.query.get(user_id)
+    if not user:
+        # cleanup si user supprimé localement
+        session.clear()
+        return jsonify({"error": "Utilisateur introuvable"}), 404
+
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "mac_address": user.mac_address
+    }), 200
+
+
+# --- API : déconnexion ---
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"message": "Déconnexion réussie"}), 200
+
+
 
 CHEQUE_MODELES = {
     "CIH Bank": {
@@ -221,121 +333,6 @@ def to_words():
     montant_lettres = num2words(montant, lang="fr").replace("virgule", "et") + " dirhams"
     return jsonify({"montant_lettres": montant_lettres})
 
-def generate_password(mac: str, length: int = 12) -> str:
-    # Remplacer chiffres par lettres ou symboles
-    translation = {'0':'@', '1':'!', '2':'#', '3':'$', '4':'%', '5':'^', '6':'&', '7':'*', '8':'(', '9':')'}
-    pwd = ''.join([translation.get(c, c) for c in mac])
-
-    letters = string.ascii_letters
-    symbols = "!@#$%^&*()_+-=[]{}<>?"
-    while len(pwd) < length:
-        pwd += random.choice(letters + symbols + string.digits)
-
-    pwd = list(pwd)
-    random.shuffle(pwd)
-    return ''.join(pwd)
-
-@app.route("/api/signup", methods=["POST"])
-def signup():
-    data = request.json
-    email = data.get("email")
-    mac_address = data.get("mac_address")
-
-    if not email or not mac_address:
-        return jsonify({"error": "Email et adresse MAC sont requis"}), 400
-
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        return jsonify({"error": "Format d'email invalide"}), 400
-
-    # Vérifier si utilisateur existe déjà
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({"error": "Email déjà existant"}), 400
-
-    existing_mac = User.query.filter_by(mac_address=mac_address).first()
-    if existing_mac:
-        return jsonify({"error": "Adresse MAC déjà enregistrée"}), 400
-
-    username = email.split('@')[0]
-    password = generate_password(mac_address, length=10)
-
-    # ✅ Création du nouvel utilisateur
-    user = User(username=username, email=email, mac_address=mac_address, password=password)
-    db.session.add(user)
-    db.session.commit()
-
-    # ✅ Retourne directement email + password pour affichage côté React
-    return jsonify({
-        "message": "Utilisateur inscrit avec succès ✅",
-        "user_id": user.id,
-        "email": email,
-        "password": password
-    }), 201
-
-@app.route("/api/login", methods=["POST"])
-def login():
-    data = request.get_json()
-    email = data.get("email")
-    password = data.get("password")
-    mac_address = data.get("mac_address")
-
-    if not email or not password or not mac_address:
-        return jsonify({"message": "Champs manquants"}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({"message": "Utilisateur introuvable"}), 404
-
-    if not check_password_hash(user.password, password):
-        return jsonify({"message": "Mot de passe incorrect"}), 401
-
-    if user.mac_address != mac_address:
-        return jsonify({"message": "Adresse MAC non autorisée"}), 403
-
-    # Génération du token JWT (5h de validité)
-    token = jwt.encode({
-        "email": user.email,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=5)
-    }, app.config["SECRET_KEY"], algorithm="HS256")
-
-    return jsonify({
-        "token": token,
-        "username": user.username,
-        "message": "Connexion réussie"
-    }), 200
-
-@app.route("/api/check", methods=["GET"])
-def check():
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        return jsonify({"message": "Token manquant"}), 401
-
-    try:
-        token = auth_header.split(" ")[1]
-        data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-        email = data.get("email")
-
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            return jsonify({"message": "Utilisateur introuvable"}), 404
-
-        return jsonify({
-            "email": user.email,
-            "username": user.username,
-            "message": "Session valide"
-        }), 200
-
-    except jwt.ExpiredSignatureError:
-        return jsonify({"message": "Session expirée"}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"message": "Token invalide"}), 401
-    except Exception as e:
-        return jsonify({"message": f"Erreur serveur : {str(e)}"}), 500
-
-@app.route("/api/logout", methods=["POST"])
-def logout():
-    return jsonify({"message": "Déconnexion réussie"}), 200
-
 @app.route("/api/cheque_pdf", methods=["POST"])
 def cheque_pdf():
     data = request.json
@@ -422,70 +419,9 @@ def cheque_pdf():
         download_name=f"cheque_{banque.replace(' ', '_')}.pdf"
     )
 
-
-@app.route("/api/user/<int:user_id>/cheques", methods=["GET"])
-def get_user_cheques(user_id):
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "Utilisateur non trouvé"}), 404
-
-    cheques = [
-        {
-            "id": c.id,
-            "banque": c.banque,
-            "a_lordre": c.a_lordre,
-            "montant": c.montant,
-            "date": c.date,
-            "lieu": c.lieu,
-            "cause": c.cause,
-            "date_echeance": c.date_echeance,
-            "date_creation": c.date_creation.strftime("%Y-%m-%d %H:%M")
-        }
-        for c in user.cheques
-    ]
-
-    return jsonify(cheques)
-
-
-@app.route("/api/banques", methods=["GET"])
-def get_banques():
-    return jsonify(list(CHEQUE_MODELES.keys()) + list(CHEQUE_MODLES_LETTRES.keys()))
-
-
-@app.route('/check_db')
-def check_db():
-    try:
-        # Inspecteur pour lister les tables
-        inspector = inspect(db.engine)
-        tables = inspector.get_table_names()
-
-        # Vérifie si les tables User et Cheque existent
-        required_tables = ['user', 'cheque']
-        missing = [t for t in required_tables if t not in tables]
-
-        if not missing:
-            return jsonify({
-                "status": "ok",
-                "message": "Base PostgreSQL connectée et tables installées : " + ", ".join(required_tables),
-                "tables_presentes": tables
-            })
-        else:
-            return jsonify({
-                "status": "error",
-                "message": "Tables manquantes : " + ", ".join(missing),
-                "tables_presentes": tables
-            })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-
-with app.app_context():
-    db.create_all()
-    
 @app.route('/')
 def home():
     return "Backend des chèques connecté à PostgreSQL Render !"
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
