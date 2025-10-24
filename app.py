@@ -17,7 +17,8 @@ import random
 import jwt
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
+
 
 # --- Base de données ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
