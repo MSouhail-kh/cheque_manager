@@ -279,43 +279,46 @@ def login():
     if not email or not password or not mac_address:
         return jsonify({"message": "Champs manquants"}), 400
 
-    user = users.get(email)
+    user = User.query.filter_by(email=email).first()
     if not user:
         return jsonify({"message": "Utilisateur introuvable"}), 404
 
-    if not check_password_hash(user["password"], password):
+    if not check_password_hash(user.password, password):
         return jsonify({"message": "Mot de passe incorrect"}), 401
 
-    if user["mac_address"] != mac_address:
+    if user.mac_address != mac_address:
         return jsonify({"message": "Adresse MAC non autorisée"}), 403
 
+    # Génération du token JWT (5h de validité)
     token = jwt.encode({
-        "email": email,
+        "email": user.email,
         "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=5)
-    }, SECRET_KEY, algorithm="HS256")
+    }, app.config["SECRET_KEY"], algorithm="HS256")
 
     return jsonify({
         "token": token,
-        "username": user["username"],
+        "username": user.username,
         "message": "Connexion réussie"
     }), 200
 
 @app.route("/api/check", methods=["GET"])
 def check():
-    token = request.headers.get("Authorization")
-    if not token:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
         return jsonify({"message": "Token manquant"}), 401
 
     try:
-        token = token.split(" ")[1]
-        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        token = auth_header.split(" ")[1]
+        data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         email = data.get("email")
-        if email not in users:
-            return jsonify({"message": "Utilisateur non trouvé"}), 404
+
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return jsonify({"message": "Utilisateur introuvable"}), 404
 
         return jsonify({
-            "email": email,
-            "username": users[email]["username"],
+            "email": user.email,
+            "username": user.username,
             "message": "Session valide"
         }), 200
 
