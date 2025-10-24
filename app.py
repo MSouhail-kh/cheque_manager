@@ -7,12 +7,15 @@ from reportlab.lib.pagesizes import A4, landscape
 from flask_cors import CORS
 from num2words import num2words
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 import os
 from flask_mail import Mail, Message
 import string
 import re
 import random
+import jwt
+import datetime
 
 app = Flask(__name__)
 CORS(app)
